@@ -72,11 +72,16 @@ class PyMap:
                         targetSocket.close()
     
     def ProcessScans(self, address: str, port: str):
-        addressesToProcess = self.AddressesFromCIDR(address)
+        addressesToProcess = []
+        if '/' in address:
+            addressesToProcess.extend(self.AddressesFromCIDR(address))
+        else:
+            addressesToProcess.append(address)
+
         portsToScan = self.PortTokenizer(port)
 
         for item in addressesToProcess:
-            self.ScanAddress(address, portsToScan)
+            self.ScanAddress(item, portsToScan)
 
     # 
     # Converts the network with CIDR notation to a list of addresses for
