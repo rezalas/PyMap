@@ -1,11 +1,14 @@
 import socket
 from argparse import ArgumentParser
 import re
+from concurrent.futures import ThreadPoolExecutor
 
-# Version: 0.1
-# Copyright Cyber Blacksmith
+
+version = "0.1"
+# Copyright (c) 2023 Paul McDowell
 
 class PyMap:
+
 
     def __init__(self):
         #declare defaults
@@ -34,7 +37,7 @@ class PyMap:
     
     def IsTargetValid(self, item : str) -> bool:
         result = False
-        pattern = "^(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])(?:\/[0-2]?\d{1}|\/3[0-2]{1})?$"
+        pattern = r"^(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])(?:\/[0-2]?\d{1}|\/3[0-2]{1})?$"
         match = re.search(pattern, item)
     
         result = match != None
@@ -45,32 +48,46 @@ class PyMap:
 
         return result;
 
-    def ScanAddress(self, address: str, portsToScan: list[int]):        
+    def ScanAddress(self, address: str, portsToScan: list[int], multiThreaded: bool = False):        
         socketMode = socket.SOCK_STREAM
         if(self.Arguments['mode'] == "UDP"):
             socketMode = socket.SOCK_DGRAM
         
-        for aPort in portsToScan:
-            with socket.socket(socket.AF_INET, socketMode) as targetSocket:
-                try:
-                        targetSocket.settimeout(self.defaultSocketTimeout)           
-                        targetSocket.connect((address, aPort))
-                        print(f"Port {aPort} is open.")
-                except ConnectionAbortedError as e:
-                    continue 
-                except ConnectionRefusedError as e:
-                    continue
-                except ConnectionResetError as e:
-                    continue
-                except ConnectionError as e: 
-                    continue
-                except TimeoutError as e:
-                    continue
-                except Exception as e:
-                    print(f"Unknown Error: {e}")
-                finally:
-                        targetSocket.close()
+        if(multiThreaded):
+            with ThreadPoolExecutor(max_workers=self.Arguments['threads']) as executor:
+                for aPort in portsToScan:
+                    executor.submit(self.ScanPort, address, aPort, socketMode)
+        else:
+            for aPort in portsToScan:
+                self.ScanPort(address, aPort, socketMode)
     
+    def ScanPort(self, address: str, port: int, socketMode: int):
+        with socket.socket(socket.AF_INET, socketMode) as targetSocket:
+            try:
+                    targetSocket.settimeout(self.defaultSocketTimeout)           
+                    targetSocket.connect((address, port))
+                    print(f"Port {port} is open.")
+            except ConnectionAbortedError as e:
+                pass 
+            except ConnectionRefusedError as e:
+                pass
+            except ConnectionResetError as e:
+                pass
+            except ConnectionError as e: 
+                pass
+            except TimeoutError as e:
+                pass
+            except Exception as e:
+                print(f"Unknown Error: {e}")
+            finally:
+                    targetSocket.close()
+    
+    #
+    # Processes the addresses and ports to scan. If the address is a CIDR range, it will be converted to a list of addresses.
+    # In the event that the address is a single address, it will be added to the list of addresses to scan, and use multi-threading
+    # to scan the ports. Otherwise, it will scan each of the addresses in the list of addresses to scan using one thread per address 
+    # based on the chosen number of threads.
+    #
     def ProcessScans(self, address: str, port: str):
         addressesToProcess = []
         if '/' in address:
@@ -80,8 +97,13 @@ class PyMap:
 
         portsToScan = self.PortTokenizer(port)
 
-        for item in addressesToProcess:
-            self.ScanAddress(item, portsToScan)
+        if(len(addressesToProcess) == 1):
+            self.ScanAddress(addressesToProcess[0], portsToScan, True)
+        else:
+            with ThreadPoolExecutor(max_workers=self.Arguments['threads']) as executor:
+                for item in addressesToProcess:
+                    executor.submit(self.ScanAddress, item, portsToScan)
+
 
     # 
     # Converts the network with CIDR notation to a list of addresses for
@@ -121,6 +143,10 @@ class PyMap:
 
         return resultSet       
 
+    #
+    # Converts the port string into a list of ports to scan.
+    # Supports a mix of comma delimited and hyphenated ranges.
+    #
     def PortTokenizer(self, ports: str) -> list[int]:
         result = []
         if ports.count(',') > 0:
@@ -160,6 +186,7 @@ class PyMap:
         self.Parser.add_argument("-p","--port", dest="port", default="80", help="The Port(s) to scan. Can be comma delimited hyphenated.")
         self.Parser.add_argument("-m","--mode", dest="mode",choices=['TCP', 'UDP'], default="TCP", help="The protocol used during the scan (e.g. TCP, UDP.)")
         self.Parser.add_argument("-w","--wait", dest="timeout", default=50, type=int, help="The timeout in ms to wait for connections. Increase to slow scans.")
-    
+        self.Parser.add_argument("-v","--version", dest="version", action="version", version=f'%(prog)s (version {version})', help="Displays the current version of PyMap.")
+        self.Parser.add_argument("-t","--threads", dest="threads", default=8, type=int, help="The number of threads to use during the scan. Increase to speed up scans.")
 
 PyMap()
