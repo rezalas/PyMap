@@ -9,7 +9,6 @@ version = "0.1"
 
 class PyMap:
 
-
     def __init__(self):
         #declare defaults
         self.Parser = ArgumentParser(prog="PyMap",
@@ -34,7 +33,9 @@ class PyMap:
         else:
             print("Address error, terminating scan.")
 
-    
+    #
+    # Validates the target address or network range. Returns true if valid, false otherwise.
+    #
     def IsTargetValid(self, item : str) -> bool:
         result = False
         pattern = r"^(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])\.(?:[0-1]?\d{1,2}|2[0-4]\d|25[0-5])(?:\/[0-2]?\d{1}|\/3[0-2]{1})?$"
@@ -48,6 +49,9 @@ class PyMap:
 
         return result;
 
+    #
+    # Scans a single address for a list of ports. If multi-threaded is enabled, it will use a thread pool to scan the ports.
+    #
     def ScanAddress(self, address: str, portsToScan: list[int], multiThreaded: bool = False):        
         socketMode = socket.SOCK_STREAM
         if(self.Arguments['mode'] == "UDP"):
@@ -58,15 +62,18 @@ class PyMap:
                 for aPort in portsToScan:
                     executor.submit(self.ScanPort, address, aPort, socketMode)
         else:
-            for aPort in portsToScan:
+            for aPort in portsToScan:   
                 self.ScanPort(address, aPort, socketMode)
     
+    #
+    # Scans a single port on a single address. If the port is open, it will print the address and port to the console.
+    #
     def ScanPort(self, address: str, port: int, socketMode: int):
         with socket.socket(socket.AF_INET, socketMode) as targetSocket:
             try:
                     targetSocket.settimeout(self.defaultSocketTimeout)           
                     targetSocket.connect((address, port))
-                    print(f"Port {port} is open.")
+                    print(f"{address} Port {port} is open.")
             except ConnectionAbortedError as e:
                 pass 
             except ConnectionRefusedError as e:
@@ -110,7 +117,7 @@ class PyMap:
     # scanning. Skips over the network and broadcast address.
     #
     def AddressesFromCIDR(self, address: str) -> list[str]:
-        resultSet = []
+        resultSet = []            
         try:
             addressTokens = address.split('/')
             CIDR = int(addressTokens[1])        
@@ -154,6 +161,9 @@ class PyMap:
             for token in tokens:
                 result.extend(self.PortTokenizer(token))
         elif ports.count('-') > 0:
+            if len(ports) == 1:
+                result.extend(range(1,65536))
+                return result
             try:
                 tokens = ports.split('-')
                 start = int(tokens[0])
@@ -181,11 +191,14 @@ class PyMap:
         
         return result
     
+    #
+    # Sets up the arguments for the application.
+    #
     def SetupArguments(self):
         self.Parser.add_argument('address', metavar='Address', type=str, help="The hostname or IP address of the target. Also supports subnet ranges using CIDR notation.")
-        self.Parser.add_argument("-p","--port", dest="port", default="80", help="The Port(s) to scan. Can be comma delimited hyphenated.")
-        self.Parser.add_argument("-m","--mode", dest="mode",choices=['TCP', 'UDP'], default="TCP", help="The protocol used during the scan (e.g. TCP, UDP.)")
-        self.Parser.add_argument("-w","--wait", dest="timeout", default=50, type=int, help="The timeout in ms to wait for connections. Increase to slow scans.")
+        self.Parser.add_argument("-p","--port", dest="port", default="80", help="Default: 80. The Port(s) to scan. Can be comma delimited hyphenated. Use - to scan all ports.")
+        self.Parser.add_argument("-m","--mode", dest="mode",choices=['TCP', 'UDP'], default="TCP", help="Default: TCP. The protocol used during the scan (e.g. TCP, UDP.)")
+        self.Parser.add_argument("-w","--wait", dest="timeout", default=50, type=int, help="Default: 50. The timeout in ms to wait for connections. Increase to improve accuracy, but will slow scan speed.")
         self.Parser.add_argument("-v","--version", dest="version", action="version", version=f'%(prog)s (version {version})', help="Displays the current version of PyMap.")
         self.Parser.add_argument("-t","--threads", dest="threads", default=8, type=int, help="The number of threads to use during the scan. Increase to speed up scans.")
 
